@@ -1,0 +1,44 @@
+---
+- name: Create VM with LUKS encrypted data volume
+  hosts: localhost
+  gather_facts: false
+  vars:
+    server_name: example-luks
+    flavor_name: SCS-1V-2
+    key_name: examplekey
+    network_name: examplenetwork
+    sg_name: examplesecurity
+    image_name: 'Debian 12'
+    vol_size: 50
+
+  tasks:
+    - name: Create LUKS boot volume
+      openstack.cloud.volume:
+        name: "{{ server_name }}-luksvol"
+        size: "{{ vol_size }}"
+        image: "{{ image_name }}"
+        volume_type: LUKS
+        state: present
+      register: luks_volume
+
+    - name: Create VM from boot volume
+      openstack.cloud.server:
+        name: "{{ server_name }}"
+        flavor: "{{ flavor_name }}"
+        key_name: "{{ key_name }}"
+        network: "{{ network_name }}"
+        security_groups: "{{ sg_name }}"
+        boot_volume: "{{ luks_volume.volume.id }}"
+        availability_zone: "{{ luks_volume.volume.availability_zone }}"
+        wait: true
+        timeout: 300
+        state: present
+      register: vm
+
+    - name: Show VM + LUKS info
+      ansible.builtin.debug:
+        msg:
+          - "VM '{{ server_name }}' ready (ID: {{ vm.server.id }})."
+          - "LUKS vol: {{ luks_volume.volume.id }} (/dev/vdb, unlock post-boot)."
+          - "Unlock: cryptsetup luksOpen /dev/vdb luksvol (needs passphrase from Barbican/cloud-init)."
+          - "Check: openstack volume show {{ server_name }}-luksvol"

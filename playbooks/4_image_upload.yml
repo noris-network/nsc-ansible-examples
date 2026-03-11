@@ -1,0 +1,42 @@
+---
+- name: Download and upload custom image to Glance
+  hosts: localhost
+  gather_facts: false
+  vars:
+    image_name: RancherOS
+    image_url: https://releases.rancher.com/os/latest/rancheros-openstack.img
+    image_file: "{{ playbook_dir }}/rancheros-openstack.img"
+    container_format: bare
+    disk_format: raw
+
+  tasks:
+    - name: Download image
+      ansible.builtin.get_url:
+        url: "{{ image_url }}"
+        dest: "{{ image_file }}"
+        mode: '0644'
+        timeout: 300  # Large image, increased
+      register: downloaded_image
+
+    - name: Upload image to Glance
+      openstack.cloud.image:
+        name: "{{ image_name }}"
+        filename: "{{ image_file }}"
+        container_format: "{{ container_format }}"
+        disk_format: "{{ disk_format }}"
+        state: present
+      register: image
+
+    - name: Cleanup temp file
+      ansible.builtin.file:
+        path: "{{ image_file }}"
+        state: absent
+      when: downloaded_image.changed or image.changed
+
+    - name: Show image info
+      ansible.builtin.debug:
+        msg:
+          - "Image '{{ image_name }}' ready (ID: {{ image.image.id }})."
+          - "Size: {{ (image.image.size | int / 1024 / 1024) | round(1) }} MB"
+          - "Use in VM: image: '{{ image_name }}'"
+          - "Check: openstack image show {{ image_name }}"

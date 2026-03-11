@@ -1,0 +1,106 @@
+---
+- name: Create VM, Network and make it reachable
+  hosts: localhost
+  gather_facts: false
+  vars:
+    external_net: external
+    network_name: examplenetwork
+    subnet_name: examplesubnet
+    subnet_cidr: 192.168.42.0/24
+    router_name: examplerouter
+    sg_name: examplesecurity
+    key_name: examplekey
+    key_file: id_rsa.cloud
+    server_name: examplevm
+    image_name: 'Debian 12'
+    flavor_name: SCS-1V-2
+    volume_size: 50
+    volume_type: rbd_fast
+    remote_ip_prefix: 0.0.0.0/0
+    description: "Part of the ansible example"
+
+  tasks:
+    - name: Create network
+      openstack.cloud.network:
+        name: "{{ network_name }}"
+        state: present
+
+    - name: Create subnet
+      openstack.cloud.subnet:
+        name: "{{ subnet_name }}"
+        network_name: "{{ network_name }}"
+        cidr: "{{ subnet_cidr }}"
+        description: "{{ description }}"
+        state: present
+      register: subnet
+
+    - name: Create router
+      openstack.cloud.router:
+        name: "{{ router_name }}"
+        network: "{{ external_net }}"
+        interfaces:
+          - net: "{{ network_name }}"
+            subnet: "{{ subnet.id }}"
+        state: present
+
+    - name: Create security group
+      openstack.cloud.security_group:
+        name: "{{ sg_name }}"
+        description: "{{ description }}"
+        state: present
+
+    - name: Allow SSH access (Port 22 TCP ingress)
+      openstack.cloud.security_group_rule:
+        security_group: "{{ sg_name }}"
+        direction: ingress
+        protocol: tcp
+        port_range_min: 22
+        port_range_max: 22
+        remote_ip_prefix: "{{ remote_ip_prefix }}"
+        state: present
+
+    - name: Upload SSH public key
+      openstack.cloud.keypair:
+        name: "{{ key_name }}"
+        public_key: "{{ lookup('file', '../' + key_file + '.pub') }}"
+        state: present
+
+    - name: Create boot volume
+      openstack.cloud.volume:
+        name: "{{ server_name }}-bootvol"
+        size: "{{ volume_size }}"
+        volume_type: "{{ volume_type }}"
+        image: "{{ image_name }}"
+        description: "{{ description }}"
+        state: present
+      register: boot_volume
+
+    - name: Create VM from volume
+      openstack.cloud.server:
+        name: "{{ server_name }}"
+        flavor: "{{ flavor_name }}"
+        key_name: "{{ key_name }}"
+        network: "{{ network_name }}"
+        security_groups: "{{ sg_name }}"
+        boot_volume: "{{ boot_volume.volume.id }}"
+        availability_zone: "{{ boot_volume.volume.availability_zone }}"
+        wait: true
+        timeout: 300
+        state: present
+
+    - name: Attach floating IP to VM
+      openstack.cloud.floating_ip:
+        network: "{{ external_net }}"
+        server: "{{ server_name }}"
+        wait: true
+        reuse: true
+        state: present
+      register: fip
+
+    - name: Display connection info
+      ansible.builtin.debug:
+        msg:
+          - "VM '{{ server_name }}' ready."
+          - "SSH: ssh -i {{ key_file }} debian@{{ fip.floating_ip.floating_ip_address }}"
+          - "Floating IP: {{ fip.floating_ip.floating_ip_address }}"
+          - "Check: openstack server show {{ server_name }}"

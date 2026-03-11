@@ -1,0 +1,102 @@
+---
+- name: Create OVN loadbalancer for VM
+  hosts: localhost
+  gather_facts: false
+  vars:
+    external_net: external
+    server_name: examplevm
+    network_name: examplenetwork
+    subnet_name: examplesubnet
+    sg_name: examplesecurity
+    lb_name: "{{ server_name }}-lb"
+    listener_name: "{{ server_name }}-listener"
+    pool_name: "{{ server_name }}-pool"
+    member_name: "{{ server_name }}-member"
+    monitor_name: "{{ server_name }}-monitor"
+
+  tasks:
+    - name: Allow HTTP (TCP 80) in security group
+      openstack.cloud.security_group_rule:
+        security_group: "{{ sg_name }}"
+        direction: ingress
+        protocol: tcp
+        port_range_min: 80
+        port_range_max: 80
+        remote_ip_prefix: 0.0.0.0/0
+        state: present
+
+    - name: Get VM details
+      openstack.cloud.server_info:
+        server: "{{ server_name }}"
+      register: server_info
+      failed_when: server_info.servers | length == 0
+
+    - name: Set VM private IP fact
+      ansible.builtin.set_fact:
+        vm_private_ip: >-
+          {{
+            server_info.servers[0].addresses[network_name]
+            | selectattr('OS-EXT-IPS:type', 'equalto', 'fixed')
+            | map(attribute='addr')
+            | first
+          }}
+
+    - name: Create loadbalancer with VIP on subnet
+      openstack.cloud.loadbalancer:
+        name: "{{ lb_name }}"
+        vip_subnet: "{{ subnet_name }}"
+        assign_floating_ip: true
+        floating_ip_network: "{{ external_net }}"
+        wait: true
+        timeout: 120
+        state: present
+      register: lb_result
+
+    - name: Create listener
+      openstack.cloud.lb_listener:
+        name: "{{ listener_name }}"
+        load_balancer: "{{ lb_result.load_balancer.id }}"
+        protocol: TCP
+        protocol_port: 80
+        wait: true
+        state: present
+      register: listener_result
+
+    - name: Create pool
+      openstack.cloud.lb_pool:
+        name: "{{ pool_name }}"
+        protocol: TCP
+        lb_algorithm: SOURCE_IP_PORT
+        listener: "{{ listener_result.listener.id }}"
+        wait: true
+        state: present
+      register: pool_result
+
+    - name: Create health monitor
+      openstack.cloud.lb_health_monitor:
+        name: "{{ monitor_name }}"
+        type: TCP
+        delay: 5
+        timeout: 10
+        max_retries: 3
+        health_monitor_timeout: 10
+        pool: "{{ pool_result.pool.id }}"
+        wait: true
+        state: present
+
+    - name: Add VM as pool member
+      openstack.cloud.lb_member:
+        name: "{{ member_name }}"
+        address: "{{ vm_private_ip }}"
+        protocol_port: 80
+        pool: "{{ pool_result.pool.id }}"
+        wait: true
+        state: present
+
+    - name: Show LB status and tests
+      ansible.builtin.debug:
+        msg:
+          - "OVN LB '{{ lb_name }}' ready (ID: {{ lb_result.load_balancer.id }})."
+          - "VIP: {{ lb_result.load_balancer.vip_address }} | FIP: {{ fip.floating_ip.floating_ip_address }}"
+          - "Test LB: curl http://{{ fip.floating_ip.floating_ip_address }}:80/"
+          - "Status: openstack loadbalancer show {{ lb_name }}"

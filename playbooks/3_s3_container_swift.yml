@@ -1,0 +1,20 @@
+---
+- name: Create object storage container (Swift)
+  hosts: localhost
+  gather_facts: false
+  vars:
+    container_name: example-bucket
+
+  tasks:
+    - name: Create Swift container
+      openstack.cloud.object_container:
+        name: "{{ container_name }}"
+        state: present
+      register: container
+
+    - name: Show container info
+      ansible.builtin.debug:
+        msg:
+          - "Swift container '{{ container_name }}' ready ({{ container.container.object_count | default('unknown') }} objects, {{ container.container.bytes_used | default('unknown') }} bytes)."
+          - "Endpoint: Check 'openstack container list' or Swift CLI."
+          - "Upload test: openstack object create {{ container_name }} test.txt --file /tmp/test.txt"

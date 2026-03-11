@@ -1,0 +1,44 @@
+---
+- name: Create extra volume and attach to VM
+  hosts: localhost
+  gather_facts: false
+  vars:
+    server_name: examplevm
+    volume_name: "{{ server_name }}-extravol"
+    extra_volume_size: 50
+    volume_type: rbd_fast
+
+  tasks:
+    - name: Get VM details
+      openstack.cloud.server_info:
+        server: "{{ server_name }}"
+      register: server_info
+      failed_when: server_info.servers | length == 0
+
+    - name: Set VM facts
+      ansible.builtin.set_fact:
+        vm_az: "{{ server_info.servers[0].availability_zone }}"
+        vm_id: "{{ server_info.servers[0].id }}"
+
+    - name: Create extra volume
+      openstack.cloud.volume:
+        name: "{{ volume_name }}"
+        size: "{{ extra_volume_size }}"
+        volume_type: "{{ volume_type }}"
+        availability_zone: "{{ vm_az }}"
+        state: present
+      register: volume
+
+    - name: Attach volume to VM
+      openstack.cloud.server_volume:
+        server: "{{ server_name }}"
+        volume: "{{ volume_name }}"
+        state: present
+      register: attached_volume
+
+    - name: Show volume info
+      ansible.builtin.debug:
+        msg:
+          - "Extra volume '{{ volume_name }}' attached to '{{ server_name }}'."
+          - "Volume ID: {{ volume.volume.id }}"
+          - "Check: lsblk on VM or 'openstack volume show {{ volume_name }}'"
