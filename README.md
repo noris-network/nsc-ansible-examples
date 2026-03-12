@@ -1,5 +1,5 @@
 # OpenStack noris nSC Ansible Examples
-This repository implements the complete noris Sovereign Cloud (nSC) Getting Started Guide using Ansible with openstack.cloud collection. Every CLI command from the nSC documentation is converted to idempotent, FQCN-clean playbooks.
+This repository implements the complete [noris Sovereign Cloud (nSC) - OpenStack & S3 Guide](https://servicenow.noris.net/csm?id=kb_article_view&sysparm_article=KB0011715) using Ansible with [openstack.cloud collection](https://docs.ansible.com/projects/ansible/latest/collections/openstack/cloud/index.html). Every CLI command from the nSC documentation is converted to idempotent playbooks.
 
 ## Usage
 
